@@ -8,6 +8,8 @@ pub use net::{NetAPPConfig, NetSDKConfig};
 mod structs;
 pub use structs::*;
 
+const SATORI: &str = "Satori";
+
 pub struct Satori<S, A> {
     s: S,
     a: A,

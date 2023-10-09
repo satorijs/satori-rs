@@ -1,5 +1,5 @@
 use super::Signal;
-use crate::{AppT, BotId, Event, Satori, SdkT};
+use crate::{AppT, BotId, Event, Satori, SdkT, SATORI};
 
 use async_trait::async_trait;
 use axum::extract::{Path, WebSocketUpgrade};
@@ -60,7 +60,7 @@ impl AppT for NetApp {
                     );
                 let server = axum::Server::bind(&(net.host, net.port).into())
                     .serve(app.into_make_service_with_connect_info::<SocketAddr>());
-                info!(target: "Satori", "Start server in {}:{}", net.host, net.port);
+                info!(target: SATORI, "Start server in {}:{}", net.host, net.port);
                 loop {
                     tokio::select! {
                         _ = server => return,
@@ -99,7 +99,7 @@ where
     let mut rx = tx.subscribe();
     let mut srx = stx.subscribe();
     ws.on_upgrade(move |mut socket| async move {
-        info!(target: "Satori", "new WebSocket client acceptted.");
+        info!(target: SATORI, "new WebSocket client acceptted.");
         loop {
             tokio::select! {
                 Ok(event) = rx.recv() => {
@@ -107,7 +107,7 @@ where
                         .send(serde_json::to_string(&Signal::event(event)).unwrap().into())
                         .await
                     {
-                        error!(target: "Satori", "Send event error: {e}");
+                        error!(target: SATORI, "Send event error: {e}");
                         return;
                     }
                 }
@@ -133,7 +133,7 @@ where
                                 _ => unreachable!(),
                             },
                             Err(e) => {
-                                error!(target: "Satori", "Receive signal error: {e}")
+                                error!(target: SATORI, "Receive signal error: {e}")
                             }
                         },
                         _ => {}

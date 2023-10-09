@@ -1,5 +1,5 @@
 use super::Signal;
-use crate::{AppT, BotId, CallApiError, Event, Login, Satori, SdkT};
+use crate::{AppT, BotId, CallApiError, Event, Login, Satori, SdkT, SATORI};
 
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
@@ -95,7 +95,7 @@ impl SdkT for NetSDK {
                 )
                 .await
                 .unwrap();
-                info!(target:"Satori", "WebSocket connected with ws://{uri}/v1/events");
+                info!(target:SATORI, "WebSocket connected with ws://{uri}/v1/events");
 
                 let mut send_time = tokio::time::Instant::now() + Duration::from_secs(10);
                 let mut seq = 0i64;
@@ -116,7 +116,7 @@ impl SdkT for NetSDK {
                             send_time += Duration::from_secs(10);
                         }
                         data = ws_stream.next() => {
-                            trace!(target: "Satori", "receive ws_msg: {:?}" ,data);
+                            trace!(target: SATORI, "receive ws_msg: {:?}" ,data);
                             match data {
                                 Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
                                     Ok(signal) => handle_signal(&s,signal,&bots,&net, &mut seq).await,
