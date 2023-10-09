@@ -1,0 +1,21 @@
+[package]
+name = "satori"
+version = "0.0.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.73"
+axum = { version = "0.6.20", features = ["ws", "headers"] }
+futures-util = "0.3.28"
+hyper = { version = "0.14.27", features = ["full"] }
+serde = { version = "1.0.188", features = ["derive"] }
+serde_json = "1.0.107"
+serde_repr = "0.1.16"
+tokio = { version = "1.32.0", features = ["rt", "sync", "macros", "rt-multi-thread"] }
+tokio-tungstenite = "0.20.1"
+tracing = "0.1.37"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3.17", features = ["time", "fmt"] }
