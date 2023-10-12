@@ -1,8 +1,10 @@
-use satori::{AppT, Event, Satori, SdkT};
+use satori::{AppT, SATORI, ChannelType, Event, Satori, SdkT};
+use serde_json::{json, Value};
 use std::{
     net::{IpAddr, Ipv4Addr},
     sync::Arc,
 };
+use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 
 pub struct Echo {}
@@ -22,12 +24,59 @@ impl AppT for Echo {
         A: AppT + Send + Sync + 'static,
     {
     }
-    async fn handle_event<S, A>(&self, _s: &Arc<Satori<S, A>>, event: Event)
+    async fn handle_event<S, A>(&self, s: &Arc<Satori<S, A>>, mut event: Event)
     where
         S: SdkT + Send + Sync + 'static,
         A: AppT + Send + Sync + 'static,
     {
-        println!("{:?}", event)
+        info!("start_handle_evnet");
+        if let Some(user) = event.user {
+            if user.id == event.self_id {
+                info!("self event");
+                return;
+            }
+        }
+        if let Some(message) = event
+            .extra
+            .remove("message")
+            .and_then(|v| serde_json::from_value::<satori::Message>(v).ok())
+            .filter(|m| m.content.starts_with("echo"))
+        {
+            let bot = satori::BotId {
+                id: event.self_id,
+                platform: event.platform,
+            };
+            if let Some(ch) = event.channel {
+                match ch.ty {
+                    ChannelType::Text => {
+                        let r = s
+                            .call_api::<Value>(
+                                "message.create",
+                                &bot,
+                                json!({
+                                    "channel_id": ch.id,
+                                    "content": message.content
+                                }),
+                            )
+                            .await;
+                        println!("......r:{:?}", r);
+                    }
+                    // ChannelType::Direct => {
+                    //     let _ch = s
+                    //         .call_api::<Channel>(
+                    //             "user.channel.create",
+                    //             &bot,
+                    //             json!({
+                    //                 "user_id": ch.id,
+                    //             }),
+                    //         )
+                    //         .await
+                    //         .unwrap();
+                    // }
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
@@ -35,7 +84,7 @@ impl AppT for Echo {
 async fn main() {
     let filter = tracing_subscriber::filter::Targets::new()
         .with_default(LevelFilter::INFO)
-        .with_targets([("Satori", LevelFilter::TRACE)]);
+        .with_targets([(SATORI, LevelFilter::TRACE)]);
     use tracing_subscriber::{
         prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
     };

@@ -88,7 +88,7 @@ impl CallApiError {
             Self::NotFound => (StatusCode::NOT_FOUND, "".to_owned()),
             Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "".to_owned()),
             Self::ServerError(code) => (StatusCode::from_u16(code).unwrap(), "".to_owned()),
-            Self::DeserializeFailed => (StatusCode::BAD_REQUEST, "".to_owned()),
+            Self::DeserializeFailed(e) => (StatusCode::BAD_REQUEST, format!("{e}")),
         }
     }
 }

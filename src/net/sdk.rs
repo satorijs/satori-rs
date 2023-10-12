@@ -1,9 +1,9 @@
-use super::Signal;
+use super::{Logins, Signal};
 use crate::{AppT, BotId, CallApiError, Event, Login, Satori, SdkT, SATORI};
 
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
-use hyper::{Body, Client};
+use hyper::{Body, Client, StatusCode};
 use serde_json::Value;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
@@ -14,7 +14,7 @@ use tokio_tungstenite::{
     client_async,
     tungstenite::{handshake::client::generate_key, http::request::Builder, Message},
 };
-use tracing::{info, trace};
+use tracing::{error, info, trace, warn};
 
 #[derive(Default)]
 pub struct NetSDK {
@@ -22,7 +22,7 @@ pub struct NetSDK {
     pub joins: Mutex<Vec<JoinHandle<()>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NetSDKConfig {
     pub host: std::net::IpAddr,
     pub port: u16,
@@ -31,7 +31,7 @@ pub struct NetSDKConfig {
 
 async fn handle_signal<S, A>(
     s: &Arc<Satori<S, A>>,
-    signal: Signal<Value>,
+    signal: Signal<Option<Value>>,
     bots: &Arc<RwLock<HashMap<BotId, NetSDKConfig>>>,
     net: &NetSDKConfig,
     seq: &mut i64,
@@ -41,24 +41,39 @@ async fn handle_signal<S, A>(
 {
     match signal.op {
         0 => {
-            if let Ok(event) = serde_json::from_value::<Event>(signal.body) {
-                let s = s.clone();
-                *seq = event.id;
-                tokio::spawn(async move { s.handle_event(event).await });
+            if let Some(body) = signal.body {
+                match serde_json::from_value::<Event>(body) {
+                    Ok(event) => {
+                        info!(target: SATORI, "receive event: {:?}", event);
+                        let s = s.clone();
+                        *seq = event.id;
+                        tokio::spawn(async move { s.handle_event(event).await });
+                    }
+                    Err(e) => {
+                        warn!(target: SATORI, "deserlize event error:{e}");
+                    }
+                }
             }
         }
         2 => {}
         4 => {
-            if let Ok(logins) = serde_json::from_value::<Vec<Login>>(signal.body) {
-                let mut bots = bots.write().await;
-                for login in logins {
-                    bots.insert(
-                        BotId {
-                            platform: login.platform.unwrap(),
-                            id: login.self_id.unwrap(),
-                        },
-                        net.clone(),
-                    );
+            if let Some(body) = signal.body {
+                match serde_json::from_value::<Logins>(body) {
+                    Ok(logins) => {
+                        let mut bots = bots.write().await;
+                        for login in logins.logins {
+                            bots.insert(
+                                BotId {
+                                    platform: login.platform.unwrap(),
+                                    id: login.self_id.unwrap(),
+                                },
+                                net.clone(),
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(target: SATORI, "deserlize logins error:{e}")
+                    }
                 }
             }
         }
@@ -120,7 +135,7 @@ impl SdkT for NetSDK {
                             match data {
                                 Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
                                     Ok(signal) => handle_signal(&s,signal,&bots,&net, &mut seq).await,
-                                    Err(_) => todo!(),
+                                    Err(e) =>  error!(target: SATORI, "deserialize error: {e} in {text}"),
                                 }
                                 Some(Ok(Message::Ping(d))) => match ws_stream.send(Message::Pong(d)).await {
                                     Ok(_) => {}
@@ -153,7 +168,7 @@ impl SdkT for NetSDK {
             .header("X-Platform", &bot.platform)
             .header("X-Self-ID", &bot.id);
         if let Some(net) = self.bots.read().await.get(bot) {
-            req = req.uri(format!("{}:{}/{}", net.host, net.port, api));
+            req = req.uri(format!("http://{}:{}/v1/{}", net.host, net.port, api));
             if let Some(token) = &net.authorize {
                 req = req.header("Authorization", format!("Bearer {}", token));
             }
@@ -163,10 +178,18 @@ impl SdkT for NetSDK {
         let req = req
             .body(Body::from(serde_json::to_string(&data).unwrap()))
             .unwrap();
+        trace!(target: SATORI,"Request:{:?}", req);
         let client = Client::new();
         let resp = client.request(req).await.unwrap();
-        let body = hyper::body::to_bytes(resp).await.unwrap();
-        Ok(String::from_utf8(body.to_vec()).unwrap())
+        trace!(target: SATORI,"Response:{:?}", resp);
+        match resp.status() {
+            StatusCode::OK => {
+                let body = hyper::body::to_bytes(resp).await.unwrap();
+                Ok(String::from_utf8(body.to_vec()).unwrap())
+            }
+            StatusCode::NOT_FOUND => Err(CallApiError::NotFound),
+            _ => unimplemented!(),
+        }
     }
     async fn get_logins(&self) -> Vec<Login> {
         self.bots

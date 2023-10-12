@@ -8,19 +8,20 @@ pub use net::{NetAPPConfig, NetSDKConfig};
 mod structs;
 pub use structs::*;
 
-const SATORI: &str = "Satori";
+pub const SATORI: &str = "Satori";
 
 pub struct Satori<S, A> {
     s: S,
     a: A,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub struct BotId {
     pub id: String,
     pub platform: String,
 }
 
+#[derive(Debug)]
 pub enum CallApiError {
     BadRequest,
     Unauthorized,
@@ -29,7 +30,7 @@ pub enum CallApiError {
     MethodNotAllowed,
     ServerError(u16),
 
-    DeserializeFailed,
+    DeserializeFailed(serde_json::Error),
 }
 
 #[async_trait]
@@ -79,10 +80,10 @@ where
         bot: &BotId,
         data: Value,
     ) -> Result<T, CallApiError> {
-        self.s
-            .call_api(api, bot, data)
-            .await
-            .and_then(|s| serde_json::from_str(&s).map_err(|_| CallApiError::DeserializeFailed))
+        self.s.call_api(api, bot, data).await.and_then(|s| {
+            tracing::trace!(target:SATORI, "recive api resp:{s}");
+            serde_json::from_str(&s).map_err(|e| CallApiError::DeserializeFailed(e))
+        })
     }
     pub async fn handle_event(self: &Arc<Self>, event: Event) {
         self.a.handle_event(self, event).await
