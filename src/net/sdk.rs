@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::{
     client_async,
@@ -19,7 +19,6 @@ use tracing::{error, info, trace, warn};
 #[derive(Default)]
 pub struct NetSDK {
     pub bots: Arc<RwLock<HashMap<BotId, NetSDKConfig>>>,
-    pub joins: Mutex<Vec<JoinHandle<()>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -84,15 +83,17 @@ async fn handle_signal<S, A>(
 #[async_trait]
 impl SdkT for NetSDK {
     type Config = Vec<NetSDKConfig>;
-    async fn start<S, A>(&self, s: &Arc<Satori<S, A>>, config: Self::Config)
+    async fn start<S, A>(&self, s: &Arc<Satori<S, A>>, config: Self::Config) -> Vec<JoinHandle<()>>
     where
         S: SdkT + Send + Sync + 'static,
         A: AppT + Send + Sync + 'static,
     {
+        let mut joins = vec![];
         for net in config {
+            let mut srx = s.get_stx().subscribe();
             let s = s.clone();
             let bots = self.bots.clone();
-            let join = tokio::spawn(async move {
+            joins.push(tokio::spawn(async move {
                 let uri = format!("{}:{}", net.host, net.port);
                 let stream = TcpStream::connect(&uri).await.unwrap(); //todo
                 let (mut ws_stream, _) = client_async(
@@ -145,21 +146,15 @@ impl SdkT for NetSDK {
                                 _ => break,
                             }
                         }
+                        _ = srx.recv() => {
+                            ws_stream.send(Message::Close(None)).await.ok();
+                            break;
+                        }
                     }
                 }
-            });
-            self.joins.lock().await.push(join);
+            }));
         }
-    }
-    async fn shutdown<S, A>(&self, _s: &Arc<Satori<S, A>>)
-    where
-        S: SdkT + Send + Sync + 'static,
-        A: AppT + Send + Sync + 'static,
-    {
-        let _ = std::mem::take(&mut *self.bots.write().await);
-        for join in std::mem::take(&mut *self.joins.lock().await) {
-            join.abort()
-        }
+        joins
     }
     async fn call_api(&self, api: &str, bot: &BotId, data: Value) -> Result<String, CallApiError> {
         let mut req = Builder::new()

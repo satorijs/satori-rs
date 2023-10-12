@@ -1,9 +1,10 @@
-use satori::{AppT, SATORI, ChannelType, Event, Satori, SdkT};
+use satori::{AppT, ChannelType, Event, Satori, SdkT, SATORI};
 use serde_json::{json, Value};
 use std::{
     net::{IpAddr, Ipv4Addr},
     sync::Arc,
 };
+use tokio::task::JoinHandle;
 use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 
@@ -12,17 +13,16 @@ pub struct Echo {}
 #[async_trait::async_trait]
 impl AppT for Echo {
     type Config = ();
-    async fn start<S, A>(&self, _s: &Arc<Satori<S, A>>, _config: Self::Config)
+    async fn start<S, A>(
+        &self,
+        _s: &Arc<Satori<S, A>>,
+        _config: Self::Config,
+    ) -> Vec<JoinHandle<()>>
     where
         S: SdkT + Send + Sync + 'static,
         A: AppT + Send + Sync + 'static,
     {
-    }
-    async fn shutdown<S, A>(&self, _s: &Arc<Satori<S, A>>)
-    where
-        S: SdkT + Send + Sync + 'static,
-        A: AppT + Send + Sync + 'static,
-    {
+        vec![]
     }
     async fn handle_event<S, A>(&self, s: &Arc<Satori<S, A>>, mut event: Event)
     where
@@ -92,7 +92,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer().with_filter(filter))
         .init();
     let app = Satori::new_app(Echo {});
-    app.start(
+    app.start_and_wait(
         vec![satori::NetSDKConfig {
             host: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             port: 5140,
@@ -101,7 +101,4 @@ async fn main() {
         (),
     )
     .await;
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await
-    }
 }

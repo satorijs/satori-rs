@@ -4,6 +4,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     sync::Arc,
 };
+use tokio::task::JoinHandle;
 use tracing_subscriber::filter::LevelFilter;
 
 pub struct Echo {}
@@ -11,17 +12,16 @@ pub struct Echo {}
 #[async_trait::async_trait]
 impl SdkT for Echo {
     type Config = ();
-    async fn start<S, A>(&self, _s: &Arc<Satori<S, A>>, _config: Self::Config)
+    async fn start<S, A>(
+        &self,
+        _s: &Arc<Satori<S, A>>,
+        _config: Self::Config,
+    ) -> Vec<JoinHandle<()>>
     where
         S: SdkT + Send + Sync + 'static,
         A: AppT + Send + Sync + 'static,
     {
-    }
-    async fn shutdown<S, A>(&self, _s: &Arc<Satori<S, A>>)
-    where
-        S: SdkT + Send + Sync + 'static,
-        A: AppT + Send + Sync + 'static,
-    {
+        vec![]
     }
     async fn call_api(
         &self,
@@ -48,7 +48,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer().with_filter(filter))
         .init();
     let sdk = Satori::new_sdk(Echo {});
-    sdk.start(
+    sdk.start_and_wait(
         (),
         vec![satori::NetAPPConfig {
             host: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -57,7 +57,4 @@ async fn main() {
         }],
     )
     .await;
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await
-    }
 }

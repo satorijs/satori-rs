@@ -10,18 +10,17 @@ use hyper::{HeaderMap, StatusCode};
 use serde_json::Value;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 pub struct NetApp {
     tx: tokio::sync::broadcast::Sender<Event>,
-    stx: tokio::sync::broadcast::Sender<()>,
 }
 
 impl NetApp {
     pub fn new() -> Self {
         let (tx, _) = tokio::sync::broadcast::channel(128);
-        let (stx, _) = tokio::sync::broadcast::channel(128);
-        Self { tx, stx }
+        Self { tx }
     }
 }
 
@@ -35,16 +34,17 @@ pub struct NetAPPConfig {
 #[async_trait]
 impl AppT for NetApp {
     type Config = Vec<NetAPPConfig>;
-    async fn start<S, A>(&self, s: &Arc<Satori<S, A>>, config: Self::Config)
+    async fn start<S, A>(&self, s: &Arc<Satori<S, A>>, config: Self::Config) -> Vec<JoinHandle<()>>
     where
         S: SdkT + Send + Sync + 'static,
         A: AppT + Send + Sync + 'static,
     {
+        let mut joins = vec![];
         for net in config {
             let tx = self.tx.clone();
-            let stx = self.stx.clone();
+            let stx = s.get_stx();
             let s = s.clone();
-            tokio::spawn(async move {
+            joins.push(tokio::spawn(async move {
                 let mut srx = stx.subscribe();
                 let app = axum::Router::new()
                     .route(
@@ -67,15 +67,9 @@ impl AppT for NetApp {
                         Ok(_) = srx.recv() => return,
                     }
                 }
-            });
+            }));
         }
-    }
-    async fn shutdown<S, A>(&self, _s: &Arc<Satori<S, A>>)
-    where
-        S: SdkT + Send + Sync + 'static,
-        A: AppT + Send + Sync + 'static,
-    {
-        self.stx.send(()).ok();
+        joins
     }
     async fn handle_event<S, A>(&self, _s: &Arc<Satori<S, A>>, event: Event)
     where
